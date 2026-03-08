@@ -238,13 +238,16 @@ function getServerHttpOrigin(): string {
 const serverHttpOrigin = getServerHttpOrigin();
 
 function ProjectFavicon({ cwd }: { cwd: string }) {
-  const [status, setStatus] = useState<"loading" | "loaded" | "error">("loading");
-
   const src = `${serverHttpOrigin}/api/project-favicon?cwd=${encodeURIComponent(cwd)}`;
+  const [imageState, setImageState] = useState<{
+    src: string;
+    status: "loading" | "loaded" | "error";
+  }>({
+    src: "",
+    status: "loading",
+  });
 
-  useEffect(() => {
-    setStatus("loading");
-  }, [src]);
+  const status = imageState.src === src ? imageState.status : "loading";
 
   return (
     <span className="relative size-3.5 shrink-0">
@@ -252,13 +255,14 @@ function ProjectFavicon({ cwd }: { cwd: string }) {
         <FolderIcon className="absolute inset-0 size-3.5 text-muted-foreground/50" />
       ) : null}
       <img
+        key={src}
         src={src}
         alt=""
         className={`absolute inset-0 size-3.5 rounded-sm object-contain ${
           status === "loaded" ? "block" : "hidden"
         }`}
-        onLoad={() => setStatus("loaded")}
-        onError={() => setStatus("error")}
+        onLoad={() => setImageState({ src, status: "loaded" })}
+        onError={() => setImageState({ src, status: "error" })}
       />
     </span>
   );
