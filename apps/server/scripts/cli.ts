@@ -37,6 +37,11 @@ interface PublishIconBackup {
   readonly backupPath: string;
 }
 
+const PROJECT_FAVICON_ASSET_FILE_NAMES = [
+  "project-favicon-default.svg",
+  "project-favicon-svelte.svg",
+] as const;
+
 const applyPublishIconOverrides = Effect.fn("applyPublishIconOverrides")(function* (
   repoRoot: string,
   serverDir: string,
@@ -110,6 +115,32 @@ const applyDevelopmentIconOverrides = Effect.fn("applyDevelopmentIconOverrides")
   yield* Effect.log("[cli] Applied development icon overrides to dist/client");
 });
 
+const copyProjectFaviconAssets = Effect.fn("copyProjectFaviconAssets")(function* (
+  serverDir: string,
+) {
+  const path = yield* Path.Path;
+  const fs = yield* FileSystem.FileSystem;
+  const sourceDir = path.join(serverDir, "src/assets");
+  const targetDir = path.join(serverDir, "dist/assets");
+
+  yield* fs.makeDirectory(targetDir, { recursive: true });
+
+  for (const fileName of PROJECT_FAVICON_ASSET_FILE_NAMES) {
+    const sourcePath = path.join(sourceDir, fileName);
+    const targetPath = path.join(targetDir, fileName);
+
+    if (!(yield* fs.exists(sourcePath))) {
+      return yield* new CliError({
+        message: `Missing project favicon asset: ${sourcePath}`,
+      });
+    }
+
+    yield* fs.copyFile(sourcePath, targetPath);
+  }
+
+  yield* Effect.log("[cli] Copied project favicon assets into dist/assets");
+});
+
 // ---------------------------------------------------------------------------
 // build subcommand
 // ---------------------------------------------------------------------------
@@ -134,6 +165,7 @@ const buildCmd = Command.make(
           stderr: "inherit",
         })`bun tsdown`,
       );
+      yield* copyProjectFaviconAssets(serverDir);
 
       const webDist = path.join(repoRoot, "apps/web/dist");
       const clientTarget = path.join(serverDir, "dist/client");
@@ -172,7 +204,12 @@ const publishCmd = Command.make(
       const backupPath = `${packageJsonPath}.bak`;
 
       // Assert build assets exist
-      for (const relPath of ["dist/index.mjs", "dist/client/index.html"]) {
+      for (const relPath of [
+        "dist/index.mjs",
+        "dist/client/index.html",
+        "dist/assets/project-favicon-default.svg",
+        "dist/assets/project-favicon-svelte.svg",
+      ]) {
         const abs = path.join(serverDir, relPath);
         if (!(yield* fs.exists(abs))) {
           return yield* new CliError({

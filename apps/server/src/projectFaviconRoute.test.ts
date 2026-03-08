@@ -4,6 +4,10 @@ import os from "node:os";
 import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
+import {
+  DEFAULT_PROJECT_FAVICON_SVG,
+  SVELTE_PROJECT_FAVICON_SVG,
+} from "./projectFaviconAssets";
 import { tryHandleProjectFaviconRequest } from "./projectFaviconRoute";
 
 interface HttpResponse {
@@ -20,9 +24,7 @@ function makeTempDir(prefix: string): string {
   return dir;
 }
 
-async function withRouteServer(
-  run: (baseUrl: string) => Promise<void>,
-): Promise<void> {
+async function withRouteServer(run: (baseUrl: string) => Promise<void>): Promise<void> {
   const server = http.createServer((req, res) => {
     const url = new URL(req.url ?? "/", "http://127.0.0.1");
     if (tryHandleProjectFaviconRequest(url, res)) {
@@ -104,7 +106,10 @@ describe("tryHandleProjectFaviconRequest", () => {
     const projectDir = makeTempDir("t3code-favicon-route-source-");
     const iconPath = path.join(projectDir, "public", "brand", "logo.svg");
     fs.mkdirSync(path.dirname(iconPath), { recursive: true });
-    fs.writeFileSync(path.join(projectDir, "index.html"), '<link rel="icon" href="/brand/logo.svg">');
+    fs.writeFileSync(
+      path.join(projectDir, "index.html"),
+      '<link rel="icon" href="/brand/logo.svg">',
+    );
     fs.writeFileSync(iconPath, "<svg>brand</svg>", "utf8");
 
     await withRouteServer(async (baseUrl) => {
@@ -120,7 +125,10 @@ describe("tryHandleProjectFaviconRequest", () => {
     const projectDir = makeTempDir("t3code-favicon-route-html-order-");
     const iconPath = path.join(projectDir, "public", "brand", "logo.svg");
     fs.mkdirSync(path.dirname(iconPath), { recursive: true });
-    fs.writeFileSync(path.join(projectDir, "index.html"), '<link href="/brand/logo.svg" rel="icon">');
+    fs.writeFileSync(
+      path.join(projectDir, "index.html"),
+      '<link href="/brand/logo.svg" rel="icon">',
+    );
     fs.writeFileSync(iconPath, "<svg>brand-html-order</svg>", "utf8");
 
     await withRouteServer(async (baseUrl) => {
@@ -129,6 +137,27 @@ describe("tryHandleProjectFaviconRequest", () => {
       expect(response.statusCode).toBe(200);
       expect(response.contentType).toContain("image/svg+xml");
       expect(response.body).toBe("<svg>brand-html-order</svg>");
+    });
+  });
+
+  it("resolves SvelteKit asset placeholders from src/app.html", async () => {
+    const projectDir = makeTempDir("t3code-favicon-route-sveltekit-assets-");
+    const iconPath = path.join(projectDir, "static", "favicon.png");
+    fs.mkdirSync(path.dirname(iconPath), { recursive: true });
+    fs.mkdirSync(path.join(projectDir, "src"), { recursive: true });
+    fs.writeFileSync(
+      path.join(projectDir, "src", "app.html"),
+      '<link rel="icon" href="%sveltekit.assets%/favicon.png">',
+      "utf8",
+    );
+    fs.writeFileSync(iconPath, "sveltekit-favicon", "utf8");
+
+    await withRouteServer(async (baseUrl) => {
+      const pathname = `/api/project-favicon?cwd=${encodeURIComponent(projectDir)}`;
+      const response = await request(baseUrl, pathname);
+      expect(response.statusCode).toBe(200);
+      expect(response.contentType).toContain("image/png");
+      expect(response.body).toBe("sveltekit-favicon");
     });
   });
 
@@ -161,7 +190,125 @@ describe("tryHandleProjectFaviconRequest", () => {
       const response = await request(baseUrl, pathname);
       expect(response.statusCode).toBe(200);
       expect(response.contentType).toContain("image/svg+xml");
-      expect(response.body).toContain('data-fallback="project-favicon"');
+      expect(response.body).toBe(DEFAULT_PROJECT_FAVICON_SVG);
+    });
+  });
+
+  it("returns the Svelte fallback when svelte.config.ts exists and no favicon exists", async () => {
+    const projectDir = makeTempDir("t3code-favicon-route-svelte-config-");
+    fs.writeFileSync(path.join(projectDir, "svelte.config.ts"), "export default {};\n", "utf8");
+
+    await withRouteServer(async (baseUrl) => {
+      const pathname = `/api/project-favicon?cwd=${encodeURIComponent(projectDir)}`;
+      const response = await request(baseUrl, pathname);
+      expect(response.statusCode).toBe(200);
+      expect(response.contentType).toContain("image/svg+xml");
+      expect(response.body).toBe(SVELTE_PROJECT_FAVICON_SVG);
+    });
+  });
+
+  it("returns the Svelte fallback when package.json declares svelte", async () => {
+    const projectDir = makeTempDir("t3code-favicon-route-svelte-package-");
+    fs.writeFileSync(
+      path.join(projectDir, "package.json"),
+      JSON.stringify({ dependencies: { svelte: "^5.0.0" } }),
+      "utf8",
+    );
+
+    await withRouteServer(async (baseUrl) => {
+      const pathname = `/api/project-favicon?cwd=${encodeURIComponent(projectDir)}`;
+      const response = await request(baseUrl, pathname);
+      expect(response.statusCode).toBe(200);
+      expect(response.body).toBe(SVELTE_PROJECT_FAVICON_SVG);
+    });
+  });
+
+  it("returns the Svelte fallback when package.json declares @sveltejs/kit", async () => {
+    const projectDir = makeTempDir("t3code-favicon-route-svelte-kit-package-");
+    fs.writeFileSync(
+      path.join(projectDir, "package.json"),
+      JSON.stringify({ devDependencies: { "@sveltejs/kit": "^2.0.0" } }),
+      "utf8",
+    );
+
+    await withRouteServer(async (baseUrl) => {
+      const pathname = `/api/project-favicon?cwd=${encodeURIComponent(projectDir)}`;
+      const response = await request(baseUrl, pathname);
+      expect(response.statusCode).toBe(200);
+      expect(response.body).toBe(SVELTE_PROJECT_FAVICON_SVG);
+    });
+  });
+
+  it("returns the Svelte fallback when src/app.html exists", async () => {
+    const projectDir = makeTempDir("t3code-favicon-route-svelte-app-html-");
+    fs.mkdirSync(path.join(projectDir, "src"), { recursive: true });
+    fs.writeFileSync(
+      path.join(projectDir, "src", "app.html"),
+      "<div>%sveltekit.body%</div>",
+      "utf8",
+    );
+
+    await withRouteServer(async (baseUrl) => {
+      const pathname = `/api/project-favicon?cwd=${encodeURIComponent(projectDir)}`;
+      const response = await request(baseUrl, pathname);
+      expect(response.statusCode).toBe(200);
+      expect(response.body).toBe(SVELTE_PROJECT_FAVICON_SVG);
+    });
+  });
+
+  it("returns the Svelte fallback when a .svelte-kit directory exists", async () => {
+    const projectDir = makeTempDir("t3code-favicon-route-svelte-kit-dir-");
+    fs.mkdirSync(path.join(projectDir, ".svelte-kit"), { recursive: true });
+
+    await withRouteServer(async (baseUrl) => {
+      const pathname = `/api/project-favicon?cwd=${encodeURIComponent(projectDir)}`;
+      const response = await request(baseUrl, pathname);
+      expect(response.statusCode).toBe(200);
+      expect(response.body).toBe(SVELTE_PROJECT_FAVICON_SVG);
+    });
+  });
+
+  it("prefers a real favicon over the Svelte fallback", async () => {
+    const projectDir = makeTempDir("t3code-favicon-route-svelte-real-favicon-");
+    fs.writeFileSync(path.join(projectDir, "svelte.config.ts"), "export default {};\n", "utf8");
+    fs.writeFileSync(path.join(projectDir, "favicon.svg"), "<svg>favicon-wins</svg>", "utf8");
+
+    await withRouteServer(async (baseUrl) => {
+      const pathname = `/api/project-favicon?cwd=${encodeURIComponent(projectDir)}`;
+      const response = await request(baseUrl, pathname);
+      expect(response.statusCode).toBe(200);
+      expect(response.body).toBe("<svg>favicon-wins</svg>");
+    });
+  });
+
+  it("prefers a resolved icon href over the Svelte fallback", async () => {
+    const projectDir = makeTempDir("t3code-favicon-route-svelte-href-");
+    const iconPath = path.join(projectDir, "public", "brand", "logo.svg");
+    fs.mkdirSync(path.dirname(iconPath), { recursive: true });
+    fs.writeFileSync(path.join(projectDir, "svelte.config.ts"), "export default {};\n", "utf8");
+    fs.writeFileSync(
+      path.join(projectDir, "index.html"),
+      '<link rel="icon" href="/brand/logo.svg">',
+    );
+    fs.writeFileSync(iconPath, "<svg>href-wins</svg>", "utf8");
+
+    await withRouteServer(async (baseUrl) => {
+      const pathname = `/api/project-favicon?cwd=${encodeURIComponent(projectDir)}`;
+      const response = await request(baseUrl, pathname);
+      expect(response.statusCode).toBe(200);
+      expect(response.body).toBe("<svg>href-wins</svg>");
+    });
+  });
+
+  it("keeps the generic fallback for non-Svelte projects", async () => {
+    const projectDir = makeTempDir("t3code-favicon-route-generic-fallback-");
+    fs.writeFileSync(path.join(projectDir, "package.json"), "{not valid json", "utf8");
+
+    await withRouteServer(async (baseUrl) => {
+      const pathname = `/api/project-favicon?cwd=${encodeURIComponent(projectDir)}`;
+      const response = await request(baseUrl, pathname);
+      expect(response.statusCode).toBe(200);
+      expect(response.body).toBe(DEFAULT_PROJECT_FAVICON_SVG);
     });
   });
 });

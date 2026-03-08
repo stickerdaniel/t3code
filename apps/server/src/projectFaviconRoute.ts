@@ -1,6 +1,11 @@
 import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
+import {
+  DEFAULT_PROJECT_FAVICON_SVG,
+  SVELTE_PROJECT_FAVICON_SVG,
+} from "./projectFaviconAssets";
+import { detectProjectIconFallback } from "./projectIconFallback";
 
 const FAVICON_MIME_TYPES: Record<string, string> = {
   ".png": "image/png",
@@ -8,8 +13,6 @@ const FAVICON_MIME_TYPES: Record<string, string> = {
   ".svg": "image/svg+xml",
   ".ico": "image/x-icon",
 };
-
-const FALLBACK_FAVICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="#6b728080" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-fallback="project-favicon"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2Z"/></svg>`;
 
 // Well-known favicon paths checked in order.
 const FAVICON_CANDIDATES = [
@@ -39,6 +42,7 @@ const FAVICON_CANDIDATES = [
 const ICON_SOURCE_FILES = [
   "index.html",
   "public/index.html",
+  "src/app.html",
   "app/routes/__root.tsx",
   "src/routes/__root.tsx",
   "app/root.tsx",
@@ -61,8 +65,18 @@ function extractIconHref(source: string): string | null {
 }
 
 function resolveIconHref(projectCwd: string, href: string): string[] {
+  const sveltekitAssetsPrefix = "%sveltekit.assets%/";
+  if (href.startsWith(sveltekitAssetsPrefix)) {
+    const clean = href.slice(sveltekitAssetsPrefix.length);
+    return [path.join(projectCwd, "static", clean), path.join(projectCwd, clean)];
+  }
+
   const clean = href.replace(/^\//, "");
-  return [path.join(projectCwd, "public", clean), path.join(projectCwd, clean)];
+  return [
+    path.join(projectCwd, "public", clean),
+    path.join(projectCwd, "static", clean),
+    path.join(projectCwd, clean),
+  ];
 }
 
 function isPathWithinProject(projectCwd: string, candidatePath: string): boolean {
@@ -88,11 +102,29 @@ function serveFaviconFile(filePath: string, res: http.ServerResponse): void {
 }
 
 function serveFallbackFavicon(res: http.ServerResponse): void {
+  serveInlineSvg(DEFAULT_PROJECT_FAVICON_SVG, res);
+}
+
+function serveInlineSvg(svg: string, res: http.ServerResponse): void {
   res.writeHead(200, {
     "Content-Type": "image/svg+xml",
     "Cache-Control": "public, max-age=3600",
   });
-  res.end(FALLBACK_FAVICON_SVG);
+  res.end(svg);
+}
+
+function serveDetectedFallback(projectCwd: string, res: http.ServerResponse): void {
+  void detectProjectIconFallback(projectCwd)
+    .then((fallbackKind) => {
+      if (fallbackKind === "svelte") {
+        serveInlineSvg(SVELTE_PROJECT_FAVICON_SVG, res);
+        return;
+      }
+      serveFallbackFavicon(res);
+    })
+    .catch(() => {
+      serveFallbackFavicon(res);
+    });
 }
 
 export function tryHandleProjectFaviconRequest(url: URL, res: http.ServerResponse): boolean {
@@ -128,7 +160,7 @@ export function tryHandleProjectFaviconRequest(url: URL, res: http.ServerRespons
 
   const trySourceFiles = (index: number): void => {
     if (index >= ICON_SOURCE_FILES.length) {
-      serveFallbackFavicon(res);
+      serveDetectedFallback(projectCwd, res);
       return;
     }
     const sourceFile = path.join(projectCwd, ICON_SOURCE_FILES[index]!);
