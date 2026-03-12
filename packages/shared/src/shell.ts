@@ -46,7 +46,7 @@ function buildEnvironmentCaptureCommand(names: ReadonlyArray<string>): string {
 
       return [
         `printf '%s\\n' '${envCaptureStart(name)}'`,
-        `printenv ${name}`,
+        `printenv ${name} || true`,
         `printf '%s\\n' '${envCaptureEnd(name)}'`,
       ].join("; ");
     })
@@ -63,7 +63,14 @@ function extractEnvironmentValue(output: string, name: string): string | undefin
   const endIndex = output.indexOf(endMarker, valueStartIndex);
   if (endIndex === -1) return undefined;
 
-  const value = output.slice(valueStartIndex, endIndex).trim();
+  let value = output.slice(valueStartIndex, endIndex);
+  if (value.startsWith("\n")) {
+    value = value.slice(1);
+  }
+  if (value.endsWith("\n")) {
+    value = value.slice(0, -1);
+  }
+
   return value.length > 0 ? value : undefined;
 }
 
